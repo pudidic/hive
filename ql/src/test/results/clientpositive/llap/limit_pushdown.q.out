@@ -401,15 +401,15 @@ STAGE PLANS:
                 TableScan
                   alias: alltypesorc
                   Statistics: Num rows: 12288 Data size: 73400 Basic stats: COMPLETE Column stats: COMPLETE
-                  Select Operator
-                    expressions: cdouble (type: double)
-                    outputColumnNames: cdouble
+                  Top N Key Operator
+                    sort order: +
+                    keys: cdouble (type: double)
                     Statistics: Num rows: 12288 Data size: 73400 Basic stats: COMPLETE Column stats: COMPLETE
-                    Top N Key Operator
-                      sort order: +
-                      keys: cdouble (type: double)
+                    top n: 20
+                    Select Operator
+                      expressions: cdouble (type: double)
+                      outputColumnNames: cdouble
                       Statistics: Num rows: 12288 Data size: 73400 Basic stats: COMPLETE Column stats: COMPLETE
-                      top n: 20
                       Group By Operator
                         keys: cdouble (type: double)
                         mode: hash
@@ -932,15 +932,15 @@ STAGE PLANS:
                 TableScan
                   alias: src
                   Statistics: Num rows: 500 Data size: 43500 Basic stats: COMPLETE Column stats: COMPLETE
-                  Select Operator
-                    expressions: key (type: string)
-                    outputColumnNames: key
+                  Top N Key Operator
+                    sort order: +
+                    keys: key (type: string)
                     Statistics: Num rows: 500 Data size: 43500 Basic stats: COMPLETE Column stats: COMPLETE
-                    Top N Key Operator
-                      sort order: +
-                      keys: key (type: string)
+                    top n: 2
+                    Select Operator
+                      expressions: key (type: string)
+                      outputColumnNames: key
                       Statistics: Num rows: 500 Data size: 43500 Basic stats: COMPLETE Column stats: COMPLETE
-                      top n: 2
                       Group By Operator
                         aggregations: count()
                         keys: key (type: string)
@@ -954,11 +954,15 @@ STAGE PLANS:
                           Statistics: Num rows: 250 Data size: 23750 Basic stats: COMPLETE Column stats: COMPLETE
                           TopN Hash Memory Usage: 0.3
                           value expressions: _col1 (type: bigint)
-                    Top N Key Operator
-                      sort order: +
-                      keys: key (type: string)
+                  Top N Key Operator
+                    sort order: +
+                    keys: key (type: string)
+                    Statistics: Num rows: 500 Data size: 43500 Basic stats: COMPLETE Column stats: COMPLETE
+                    top n: 3
+                    Select Operator
+                      expressions: key (type: string)
+                      outputColumnNames: key
                       Statistics: Num rows: 500 Data size: 43500 Basic stats: COMPLETE Column stats: COMPLETE
-                      top n: 3
                       Group By Operator
                         aggregations: count()
                         keys: key (type: string)

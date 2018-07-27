@@ -894,23 +894,23 @@ STAGE PLANS:
                   TableScan Vectorization:
                       native: true
                       vectorizationSchemaColumns: [0:a:string, 1:b:string, 2:c:string, 3:ROW__ID:struct<writeid:bigint,bucketid:int,rowid:bigint>]
-                  Select Operator
-                    expressions: a (type: string)
-                    outputColumnNames: a
-                    Select Vectorization:
-                        className: VectorSelectOperator
-                        native: true
-                        projectedOutputColumnNums: [0]
+                  Top N Key Operator
+                    sort order: +
+                    keys: a (type: string)
                     Statistics: Num rows: 6 Data size: 1104 Basic stats: COMPLETE Column stats: NONE
-                    Top N Key Operator
-                      sort order: +
-                      keys: a (type: string)
-                      Statistics: Num rows: 6 Data size: 1104 Basic stats: COMPLETE Column stats: NONE
-                      top n: 10
-                      Top N Key Vectorization:
-                          className: VectorTopNKeyOperator
-                          keyExpressions: col 0:string
+                    top n: 10
+                    Top N Key Vectorization:
+                        className: VectorTopNKeyOperator
+                        keyExpressions: col 0:string
+                        native: true
+                    Select Operator
+                      expressions: a (type: string)
+                      outputColumnNames: a
+                      Select Vectorization:
+                          className: VectorSelectOperator
                           native: true
+                          projectedOutputColumnNums: [0]
+                      Statistics: Num rows: 6 Data size: 1104 Basic stats: COMPLETE Column stats: NONE
                       Group By Operator
                         Group By Vectorization:
                             className: VectorGroupByOperator

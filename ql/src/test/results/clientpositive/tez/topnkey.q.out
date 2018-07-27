@@ -80,10 +80,10 @@ Stage-0
                   PartitionCols:_col0
                   Group By Operator [GBY_2] (rows=250 width=87)
                     Output:["_col0"],keys:key
-                    Top N Key Operator [TNK_10] (rows=500 width=87)
-                      keys:key,sort order:+,top n:5
-                      Select Operator [SEL_1] (rows=500 width=87)
-                        Output:["key"]
+                    Select Operator [SEL_1] (rows=500 width=87)
+                      Output:["key"]
+                      Top N Key Operator [TNK_11] (rows=500 width=87)
+                        keys:key,sort order:+,top n:5
                         TableScan [TS_0] (rows=500 width=87)
                           default@src,src,Tbl:COMPLETE,Col:COMPLETE,Output:["key"]
 

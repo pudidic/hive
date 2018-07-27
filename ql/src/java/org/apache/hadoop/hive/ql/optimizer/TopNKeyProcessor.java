@@ -38,6 +38,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Stack;
 
 /**
@@ -81,8 +82,8 @@ public class TopNKeyProcessor implements NodeProcessor {
     // Check whether RS keys are same as GBY keys
     List<ExprNodeDesc> groupByKeyColumns = groupByDesc.getKeys();
     List<ExprNodeDesc> mappedColumns = new ArrayList<>();
-    for (ExprNodeDesc columns : reduceSinkDesc.getKeyCols()) {
-      mappedColumns.add(groupByDesc.getColumnExprMap().get(columns.getExprString()));
+    for (ExprNodeDesc rsKey : reduceSinkDesc.getKeyCols()) {
+      mappedColumns.add(groupByDesc.getColumnExprMap().get(rsKey.getExprString()));
     }
     if (!ExprNodeDescUtils.isSame(mappedColumns, groupByKeyColumns)) {
       return null;
@@ -97,13 +98,28 @@ public class TopNKeyProcessor implements NodeProcessor {
     // Insert a new top n key operator between the group by operator and its parent
     TopNKeyDesc topNKeyDesc = new TopNKeyDesc(reduceSinkDesc.getTopN(), reduceSinkDesc.getOrder(),
         groupByKeyColumns);
-    Operator<? extends OperatorDesc> newOperator = OperatorFactory.getAndMakeChild(
-        groupByOperator.getCompilationOpContext(), (OperatorDesc) topNKeyDesc,
-        new RowSchema(groupByOperator.getSchema()), groupByOperator.getParentOperators());
-    newOperator.getChildOperators().add(groupByOperator);
-    groupByOperator.getParentOperators().add(newOperator);
-    parentOperator.removeChild(groupByOperator);
-
+    createOperatorBetween(parentOperator, groupByOperator, topNKeyDesc);
     return null;
+  }
+
+  static List<ExprNodeDesc> columnsByNames(List<String> columnNames,
+      Map<String, ExprNodeDesc> columnExprMap) {
+    List<ExprNodeDesc> mappedColumns = new ArrayList<>();
+    for (String columnName : columnNames) {
+      mappedColumns.add(columnExprMap.get(columnName));
+    }
+    return mappedColumns;
+  }
+
+  static Operator<? extends OperatorDesc> createOperatorBetween(
+      Operator<? extends OperatorDesc> parent, Operator<? extends OperatorDesc> child,
+      OperatorDesc operatorDesc) {
+    final Operator<? extends OperatorDesc> newOperator = OperatorFactory.getAndMakeChild(
+        child.getCompilationOpContext(), operatorDesc,
+        new RowSchema(child.getSchema()), child.getParentOperators());
+    newOperator.getChildOperators().add(child);
+    child.getParentOperators().add(newOperator);
+    parent.removeChild(child);
+    return newOperator;
   }
 }

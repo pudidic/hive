@@ -430,15 +430,15 @@ STAGE PLANS:
                 TableScan
                   alias: alltypesorc
                   Statistics: Num rows: 12288 Data size: 73400 Basic stats: COMPLETE Column stats: COMPLETE
-                  Select Operator
-                    expressions: cdouble (type: double)
-                    outputColumnNames: cdouble
+                  Top N Key Operator
+                    sort order: +
+                    keys: cdouble (type: double)
                     Statistics: Num rows: 12288 Data size: 73400 Basic stats: COMPLETE Column stats: COMPLETE
-                    Top N Key Operator
-                      sort order: +
-                      keys: cdouble (type: double)
+                    top n: 20
+                    Select Operator
+                      expressions: cdouble (type: double)
+                      outputColumnNames: cdouble
                       Statistics: Num rows: 12288 Data size: 73400 Basic stats: COMPLETE Column stats: COMPLETE
-                      top n: 20
                       Group By Operator
                         keys: cdouble (type: double)
                         mode: hash

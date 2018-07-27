@@ -66,24 +66,24 @@ Stage-0
     limit:5
     Stage-1
       Reducer 3 vectorized
-      File Output Operator [FS_19]
-        Limit [LIM_18] (rows=5 width=87)
+      File Output Operator [FS_20]
+        Limit [LIM_19] (rows=5 width=87)
           Number of rows:5
-          Select Operator [SEL_17] (rows=250 width=87)
+          Select Operator [SEL_18] (rows=250 width=87)
             Output:["_col0"]
           <-Reducer 2 [SIMPLE_EDGE] vectorized
-            SHUFFLE [RS_16]
-              Group By Operator [GBY_15] (rows=250 width=87)
+            SHUFFLE [RS_17]
+              Group By Operator [GBY_16] (rows=250 width=87)
                 Output:["_col0"],keys:KEY._col0
               <-Map 1 [SIMPLE_EDGE] vectorized
-                SHUFFLE [RS_14]
+                SHUFFLE [RS_15]
                   PartitionCols:_col0
-                  Group By Operator [GBY_13] (rows=250 width=87)
+                  Group By Operator [GBY_14] (rows=250 width=87)
                     Output:["_col0"],keys:key
-                    Top N Key Operator [TNK_12] (rows=500 width=87)
-                      keys:key,sort order:+,top n:5
-                      Select Operator [SEL_11] (rows=500 width=87)
-                        Output:["key"]
+                    Select Operator [SEL_13] (rows=500 width=87)
+                      Output:["key"]
+                      Top N Key Operator [TNK_12] (rows=500 width=87)
+                        keys:key,sort order:+,top n:5
                         TableScan [TS_0] (rows=500 width=87)
                           default@src,src,Tbl:COMPLETE,Col:COMPLETE,Output:["key"]
 
