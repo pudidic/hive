@@ -29,24 +29,24 @@ STAGE PLANS:
                   TableScan Vectorization:
                       native: true
                       vectorizationSchemaColumns: [0:key:string, 1:value:string, 2:ROW__ID:struct<writeid:bigint,bucketid:int,rowid:bigint>]
-                  Select Operator
-                    expressions: key (type: string), UDFToInteger(substr(value, 5)) (type: int)
-                    outputColumnNames: _col0, _col1
-                    Select Vectorization:
-                        className: VectorSelectOperator
-                        native: true
-                        projectedOutputColumnNums: [0, 4]
-                        selectExpressions: CastStringToLong(col 3:string)(children: StringSubstrColStart(col 1:string, start 4) -> 3:string) -> 4:int
+                  Top N Key Operator
+                    sort order: +
+                    keys: key (type: string)
                     Statistics: Num rows: 500 Data size: 89000 Basic stats: COMPLETE Column stats: COMPLETE
-                    Top N Key Operator
-                      sort order: +
-                      keys: _col0 (type: string)
-                      Statistics: Num rows: 500 Data size: 89000 Basic stats: COMPLETE Column stats: COMPLETE
-                      top n: 5
-                      Top N Key Vectorization:
-                          className: VectorTopNKeyOperator
-                          keyExpressions: col 0:string
+                    top n: 5
+                    Top N Key Vectorization:
+                        className: VectorTopNKeyOperator
+                        keyExpressions: col 0:string
+                        native: true
+                    Select Operator
+                      expressions: key (type: string), UDFToInteger(substr(value, 5)) (type: int)
+                      outputColumnNames: _col0, _col1
+                      Select Vectorization:
+                          className: VectorSelectOperator
                           native: true
+                          projectedOutputColumnNums: [0, 4]
+                          selectExpressions: CastStringToLong(col 3:string)(children: StringSubstrColStart(col 1:string, start 4) -> 3:string) -> 4:int
+                      Statistics: Num rows: 500 Data size: 89000 Basic stats: COMPLETE Column stats: COMPLETE
                       Group By Operator
                         aggregations: sum(_col1)
                         Group By Vectorization:

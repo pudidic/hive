@@ -20,7 +20,6 @@ package org.apache.hadoop.hive.ql.optimizer;
 import org.apache.hadoop.hive.ql.exec.GroupByOperator;
 import org.apache.hadoop.hive.ql.exec.JoinOperator;
 import org.apache.hadoop.hive.ql.exec.Operator;
-import org.apache.hadoop.hive.ql.exec.OperatorUtils;
 import org.apache.hadoop.hive.ql.exec.TopNKeyOperator;
 import org.apache.hadoop.hive.ql.lib.Node;
 import org.apache.hadoop.hive.ql.lib.NodeProcessor;
@@ -35,15 +34,12 @@ import org.apache.hadoop.hive.ql.plan.TopNKeyDesc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collection;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.Stack;
 
-import static org.apache.hadoop.hive.ql.optimizer.TopNKeyProcessor.columnsByNames;
 import static org.apache.hadoop.hive.ql.optimizer.TopNKeyProcessor.createOperatorBetween;
-import static org.apache.hadoop.hive.ql.plan.ExprNodeDesc.ExprNodeDescEqualityWrapper.transform;
 
 public class TopNKeyPushdownProcessor implements NodeProcessor {
   private static final Logger LOG = LoggerFactory.getLogger(TopNKeyPushdownProcessor.class);
@@ -56,7 +52,7 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     return null;
   }
 
-  private TopNKeyOperator pushdown(TopNKeyOperator currentOperator) {
+  private TopNKeyOperator pushdown(TopNKeyOperator currentOperator) throws SemanticException {
     Operator<? extends OperatorDesc> parentOperator = currentOperator.getParentOperators().get(0);
 
     switch (parentOperator.getType()) {
@@ -92,32 +88,28 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     return null;
   }
 
-  private TopNKeyOperator pushdownThroughProject(TopNKeyOperator currentOperator) {
-    final Operator<? extends OperatorDesc> parentOperator = getSingleParent(currentOperator);
+  private TopNKeyOperator pushdownThroughProject(TopNKeyOperator topNKeyOperator) throws SemanticException {
+    final Operator<? extends OperatorDesc> projectOperator = getSingleParent(topNKeyOperator);
 
     // Check whether TopNKey key columns can be mapped to expressions based on Project input
-    final Map<String, ExprNodeDesc> columnExprMap = parentOperator.getColumnExprMap();
-    if (columnExprMap == null) {
+    final Map<String, ExprNodeDesc> projectColumnExprMap = projectOperator.getColumnExprMap();
+    if (projectColumnExprMap == null) {
       return null;
     }
-    final Collection<ExprNodeDesc> projectInputs = columnExprMap.values();
-    final TopNKeyDesc currentDesc = currentOperator.getConf();
-    if (!transform(projectInputs).containsAll(transform(currentDesc.getKeyColumns()))) {
-      return null;
+    final TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
+    final List<ExprNodeDesc> mappedKeyColumns = new ArrayList<>();
+    for (String name : topNKeyDesc.getKeyColumnNames()) {
+      if (!projectColumnExprMap.containsKey(name)) {
+        return null;
+      }
+      mappedKeyColumns.add(projectColumnExprMap.get(name));
     }
 
-    final TopNKeyDesc topNKeyDesc = new TopNKeyDesc(currentDesc.getTopN(),
-        currentDesc.getColumnSortOrder(), currentDesc.getKeyColumns());
-    removeOperatorAndConnectParentAndChild(currentOperator);
-    final Operator<? extends OperatorDesc> grandParentOperator = getSingleParent(parentOperator);
-    return (TopNKeyOperator) createOperatorBetween(grandParentOperator, parentOperator, topNKeyDesc);
-  }
-
-  private void removeOperatorAndConnectParentAndChild(Operator<? extends OperatorDesc> operator) {
-    Operator<? extends OperatorDesc> parent = getSingleParent(operator);
-    Operator<? extends OperatorDesc> child = getSingleChild(operator);
-    parent.replaceChild(operator, child);
-    child.replaceParent(operator, parent);
+    final TopNKeyDesc newTopNKeyDesc = new TopNKeyDesc(topNKeyDesc.getTopN(),
+        topNKeyDesc.getColumnSortOrder(), mappedKeyColumns);
+    projectOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
+    final Operator<? extends OperatorDesc> grandParentOperator = getSingleParent(projectOperator);
+    return (TopNKeyOperator) createOperatorBetween(grandParentOperator, projectOperator, newTopNKeyDesc);
   }
 
   private Operator<? extends OperatorDesc> getSingleParent(
@@ -138,33 +130,44 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     return children.get(0);
   }
 
-  private TopNKeyOperator pushdownThroughGroupBy(TopNKeyOperator currentOperator) {
+  /**
+   * Push through GroupBy. No grouping sets. If TopNKey expression is same as GroupBy expression,
+   * we can push it and remove it from above GroupBy. If expression in TopNKey shared common prefix
+   * with GroupBy, TopNKey could be pushed through GroupBy using that prefix and kept above it.
+   * @param topNKeyOperator
+   * @return
+   */
+  private TopNKeyOperator pushdownThroughGroupBy(TopNKeyOperator topNKeyOperator) {
     final GroupByOperator groupByOperator =
-        (GroupByOperator) currentOperator.getParentOperators().get(0);
+        (GroupByOperator) topNKeyOperator.getParentOperators().get(0);
 
-    // Check whether GroupBy has grouping sets
+    // No grouping sets
     if (groupByOperator.getConf().isGroupingSetsPresent()) {
       return null;
     }
 
-    /*
-     Push through GroupBy. No grouping sets. If TopNKey expression is same as GroupBy expression,
-     we can push it and remove it from above GroupBy. If expression in TopNKey shared common prefix
-     with GroupBy, TopNKey could be pushed through GroupBy using that prefix and kept above it.
-     */
+    // If TopNKey expression is same as GroupBy expression
+    if (ExprNodeDescUtils.isSame(topNKeyOperator.getConf().getKeyColumns(), groupByOperator.getConf().getKeys())) {
+      LOG.info("t: " + topNKeyOperator.getConf().getKeyColumns());
+      LOG.info("t: " + groupByOperator.getConf().getKeys());
+      return null;
+    }
 
+    // We can push it and remove it from above GroupBy.
     return null;
   }
 
+  /**
+   * Push through ReduceSink. If TopNKey expression is same as ReduceSink expression and order is
+   * the same, we can push it and remove it from above ReduceSink. If expression in TopNKey shared
+   * common prefix with ReduceSink including same order, TopNKey could be pushed through ReduceSink
+   * using that prefix and kept above it.
+   * @param currentOperator
+   * @return
+   */
   private TopNKeyOperator pushdownThroughReduceSink(TopNKeyOperator currentOperator) {
     final Operator<? extends OperatorDesc> parentOperator =
         currentOperator.getParentOperators().get(0);
-    /*
-     Push through ReduceSink. If TopNKey expression is same as ReduceSink expression and order is
-     the same, we can push it and remove it from above ReduceSink. If expression in TopNKey shared
-     common prefix with ReduceSink including same order, TopNKey could be pushed through ReduceSink
-     using that prefix and kept above it.
-     */
     return null;
   }
 
