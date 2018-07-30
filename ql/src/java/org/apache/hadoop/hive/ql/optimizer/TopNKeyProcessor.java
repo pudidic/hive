@@ -38,7 +38,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Stack;
 
 /**
@@ -102,24 +101,14 @@ public class TopNKeyProcessor implements NodeProcessor {
     return null;
   }
 
-  static List<ExprNodeDesc> columnsByNames(List<String> columnNames,
-      Map<String, ExprNodeDesc> columnExprMap) {
-    List<ExprNodeDesc> mappedColumns = new ArrayList<>();
-    for (String columnName : columnNames) {
-      mappedColumns.add(columnExprMap.get(columnName));
-    }
-    return mappedColumns;
-  }
-
-  static Operator<? extends OperatorDesc> createOperatorBetween(
-      Operator<? extends OperatorDesc> parent, Operator<? extends OperatorDesc> child,
-      OperatorDesc operatorDesc) {
+  static TopNKeyOperator createOperatorBetween(Operator<? extends OperatorDesc> parent,
+      Operator<? extends OperatorDesc> child, OperatorDesc operatorDesc) {
     final Operator<? extends OperatorDesc> newOperator = OperatorFactory.getAndMakeChild(
         child.getCompilationOpContext(), operatorDesc,
-        new RowSchema(child.getSchema()), child.getParentOperators());
+        new RowSchema(child.getSchema()), new Operator[] {parent});
     newOperator.getChildOperators().add(child);
     child.getParentOperators().add(newOperator);
     parent.removeChild(child);
-    return newOperator;
+    return (TopNKeyOperator) newOperator;
   }
 }
