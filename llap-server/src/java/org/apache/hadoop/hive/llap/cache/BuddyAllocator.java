@@ -320,17 +320,24 @@ public final class BuddyAllocator
           hasDiscardedAny = hasDiscardedAny || (ctx.resultCount > 0);
           destAllocIx = allocateFromDiscardResult(
               dest, destAllocIx, freeListIx, allocationSize, ctx);
-
           if (destAllocIx == dest.length) return;
         }
 
         if (hasDiscardedAny) {
           discardFailed = 0;
         } else if (++discardFailed > MAX_DISCARD_ATTEMPTS) {
+          isFailed = true;
+          // Ensure all-or-nothing allocation.
+          for (int i = 0; i < destAllocIx; ++i) {
+            try {
+              deallocate(dest[i]);
+            } catch (Throwable t) {
+              LlapIoImpl.LOG.info("Failed to deallocate after a partially successful allocate: " + dest[i]);
+            }
+          }
           String msg = "Failed to allocate " + size + "; at " + destAllocIx + " out of "
               + dest.length + " (entire cache is fragmented and locked, or an internal issue)";
           logOomErrorMessage(msg);
-          isFailed = true;
           throw new AllocatorOutOfMemoryException(msg);
         }
         ++attempt;
@@ -1352,21 +1359,23 @@ public final class BuddyAllocator
 
     public void deallocate(LlapAllocatorBuffer buffer, boolean isAfterMove) {
       assert data != null;
-      int pos = buffer.byteBuffer.position();
-      // Note: this is called by someone who has ensured the buffer is not going to be moved.
-      int headerIx = pos >>> minAllocLog2;
-      int freeListIx = freeListFromAllocSize(buffer.allocSize);
-      if (assertsEnabled && !isAfterMove) {
-        LlapAllocatorBuffer buf = buffers[headerIx];
-        if (buf != buffer) {
-          failWithLog(arenaIx + ":" + headerIx + " => "
+      if (buffer != null && buffer.byteBuffer != null) {
+        int pos = buffer.byteBuffer.position();
+        // Note: this is called by someone who has ensured the buffer is not going to be moved.
+        int headerIx = pos >>> minAllocLog2;
+        int freeListIx = freeListFromAllocSize(buffer.allocSize);
+        if (assertsEnabled && !isAfterMove) {
+          LlapAllocatorBuffer buf = buffers[headerIx];
+          if (buf != buffer) {
+            failWithLog(arenaIx + ":" + headerIx + " => "
               + toDebugString(buffer) + ", " + toDebugString(buf));
+          }
+          assertBufferLooksValid(freeListFromHeader(headers[headerIx]), buf, arenaIx, headerIx);
+          checkHeader(headerIx, freeListIx, true);
         }
-        assertBufferLooksValid(freeListFromHeader(headers[headerIx]), buf, arenaIx, headerIx);
-        checkHeader(headerIx, freeListIx, true);
+        buffers[headerIx] = null;
+        addToFreeListWithMerge(headerIx, freeListIx, buffer, CasLog.Src.DEALLOC);
       }
-      buffers[headerIx] = null;
-      addToFreeListWithMerge(headerIx, freeListIx, buffer, CasLog.Src.DEALLOC);
     }
 
     private void addToFreeListWithMerge(int headerIx, int freeListIx,

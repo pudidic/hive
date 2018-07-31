@@ -594,6 +594,8 @@ public class MetastoreConf {
         "When used in conjunction with the org.apache.hadoop.hive.ql.parse.MetaDataExportListener pre event listener, \n" +
             "it is the location to which the metadata will be exported. The default is an empty string, which results in the \n" +
             "metadata being exported to the current user's home directory on HDFS."),
+    METASTORE_MAX_EVENT_RESPONSE("metastore.max.event.response", "hive.metastore.max.event.response", 1000000,
+        "The parameter will decide the maximum number of events that HMS will respond."),
     MOVE_EXPORTED_METADATA_TO_TRASH("metastore.metadata.move.exported.metadata.to.trash",
         "hive.metadata.move.exported.metadata.to.trash", true,
         "When used in conjunction with the org.apache.hadoop.hive.ql.parse.MetaDataExportListener pre event listener, \n" +
@@ -652,7 +654,7 @@ public class MetastoreConf {
         "org.apache.hadoop.hive.metastore.ObjectStore",
         "Name of the class that implements org.apache.riven.rawstore interface. \n" +
             "This class is used to store and retrieval of raw metadata objects such as table, database"),
-    REPLCMDIR("metastore.repl.cmrootdir", "hive.repl.cmrootdir", "/user/hive/cmroot/",
+    REPLCMDIR("metastore.repl.cmrootdir", "hive.repl.cmrootdir", "/user/${system:user.name}/cmroot/",
         "Root dir for ChangeManager, used for deleted files."),
     REPLCMRETIAN("metastore.repl.cm.retain", "hive.repl.cm.retain",  24, TimeUnit.HOURS,
         "Time to retain removed files in cmrootdir."),
@@ -660,7 +662,7 @@ public class MetastoreConf {
         "Inteval for cmroot cleanup thread."),
     REPLCMENABLED("metastore.repl.cm.enabled", "hive.repl.cm.enabled", false,
         "Turn on ChangeManager, so delete files will go to cmrootdir."),
-    REPLDIR("metastore.repl.rootdir", "hive.repl.rootdir", "/user/hive/repl/",
+    REPLDIR("metastore.repl.rootdir", "hive.repl.rootdir", "/user/${system:user.name}/repl/",
         "HDFS root dir for all replication dumps."),
     REPL_COPYFILE_MAXNUMFILES("metastore.repl.copyfile.maxnumfiles",
         "hive.exec.copyfile.maxnumfiles", 1L,
