@@ -20,6 +20,7 @@ package org.apache.hadoop.hive.ql.optimizer;
 import org.apache.hadoop.hive.ql.exec.GroupByOperator;
 import org.apache.hadoop.hive.ql.exec.JoinOperator;
 import org.apache.hadoop.hive.ql.exec.Operator;
+import org.apache.hadoop.hive.ql.exec.ReduceSinkOperator;
 import org.apache.hadoop.hive.ql.exec.SelectOperator;
 import org.apache.hadoop.hive.ql.exec.TopNKeyOperator;
 import org.apache.hadoop.hive.ql.exec.UnionOperator;
@@ -30,10 +31,11 @@ import org.apache.hadoop.hive.ql.parse.SemanticException;
 import org.apache.hadoop.hive.ql.plan.ExprNodeConstantDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDescUtils;
+import org.apache.hadoop.hive.ql.plan.GroupByDesc;
 import org.apache.hadoop.hive.ql.plan.JoinCondDesc;
 import org.apache.hadoop.hive.ql.plan.JoinDesc;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
-import org.apache.hadoop.hive.ql.plan.SelectDesc;
+import org.apache.hadoop.hive.ql.plan.ReduceSinkDesc;
 import org.apache.hadoop.hive.ql.plan.TopNKeyDesc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,25 +64,25 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     switch (parentOperator.getType()) {
       case SELECT:
         pushdownThroughSelect(topNKeyOperator);
-        return;
+        break;
 
       case UNION:
         pushdownThroughUnion(topNKeyOperator);
-        return;
+        break;
 
       case FILTER:
       case FORWARD:
       case LIMIT:
         pushdownThroughFilter(topNKeyOperator);
-        return;
+        break;
 
       case GROUPBY:
         pushdownThroughGroupBy(topNKeyOperator);
-        return;
+        break;
 
       case REDUCESINK:
         pushdownThroughReduceSink(topNKeyOperator);
-        return;
+        break;
 
       case MAPJOIN:
       case MERGEJOIN:
@@ -91,13 +93,19 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
           switch (joinConds[0].getType()) {
             case JoinDesc.FULL_OUTER_JOIN:
               pushdownThroughFullOuterJoin(topNKeyOperator);
-              return;
+              break;
+
             case JoinDesc.LEFT_OUTER_JOIN:
               pushdownThroughLeftOuterJoin(topNKeyOperator);
-              return;
+              break;
+
             case JoinDesc.RIGHT_OUTER_JOIN:
               pushdownThroughRightOuterJoin(topNKeyOperator);
-              return;
+              break;
+
+            case JoinDesc.INNER_JOIN:
+              pushdownThroughInnerJoin(topNKeyOperator);
+              break;
           }
         }
     }
@@ -127,34 +135,30 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
   }
 
   private void pushdownThroughSelect(TopNKeyOperator topNKeyOperator) throws SemanticException {
-    final SelectOperator selectOperator = (SelectOperator) topNKeyOperator.getParentOperators().get(0);
-    LOG.debug("select.schema: " + selectOperator.getSchema());
-
-    final TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
-    LOG.debug("topNKey.schema: " + topNKeyOperator.getSchema());
+    final SelectOperator selectOperator =
+        (SelectOperator) topNKeyOperator.getParentOperators().get(0);
 
     // Check whether TopNKey key columns can be mapped to expressions based on Project input
     final Map<String, ExprNodeDesc> selectMap = selectOperator.getColumnExprMap();
     if (selectMap == null) {
       return;
     }
-    final List<ExprNodeDesc> mappedKeyColumns = new ArrayList<>();
-    for (ExprNodeDesc key : topNKeyDesc.getKeyColumns()) {
-      final String keyString = key.getExprString();
-      if (key instanceof ExprNodeConstantDesc) {
-        mappedKeyColumns.add(key);
-      } else if (selectMap.containsKey(keyString)) {
-        mappedKeyColumns.add(selectMap.get(keyString));
-      } else {
+    final TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
+
+    for (ExprNodeDesc tnkKey : topNKeyDesc.getKeyColumns()) {
+      if (tnkKey instanceof ExprNodeConstantDesc) {
+        continue;
+      }
+      if (!selectMap.containsKey(tnkKey.getExprString())) {
         return;
       }
     }
 
     final TopNKeyDesc newTopNKeyDesc = new TopNKeyDesc(topNKeyDesc.getTopN(),
-        topNKeyDesc.getColumnSortOrder(), mappedKeyColumns);
+        topNKeyDesc.getColumnSortOrder(), topNKeyDesc.getKeyColumns());
     selectOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
-    pushdown(createOperatorBetween(selectOperator.getParentOperators().get(0), selectOperator,
-        newTopNKeyDesc));
+    final Operator<? extends OperatorDesc> grandParentOperator = selectOperator.getParentOperators().get(0);
+    pushdown(createOperatorBetween(grandParentOperator, selectOperator, newTopNKeyDesc));
   }
 
   /**
@@ -164,30 +168,38 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
    * @param topNKeyOperator
    * @return
    */
-  private TopNKeyOperator pushdownThroughGroupBy(TopNKeyOperator topNKeyOperator) {
+  private void pushdownThroughGroupBy(TopNKeyOperator topNKeyOperator) throws SemanticException {
     final GroupByOperator groupByOperator =
         (GroupByOperator) topNKeyOperator.getParentOperators().get(0);
-
-    LOG.info("a");
+    final GroupByDesc groupByDesc = groupByOperator.getConf();
+    final TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
 
     // No grouping sets
-    if (groupByOperator.getConf().isGroupingSetsPresent()) {
-      LOG.info("b");
-      return null;
+    if (groupByDesc.isGroupingSetsPresent()) {
+      return;
     }
 
-    LOG.info("t.k: " + topNKeyOperator.getConf().getKeyColumns());
-    LOG.info("t.m: " + topNKeyOperator.getColumnExprMap());
-    LOG.info("g.k: " + groupByOperator.getConf().getKeys());
-    LOG.info("g.m: " + groupByOperator.getColumnExprMap());
-
     // If TopNKey expression is same as GroupBy expression
-    if (ExprNodeDescUtils.isSame(topNKeyOperator.getConf().getKeyColumns(), groupByOperator.getConf().getKeys())) {
-      return null;
+    final List<ExprNodeDesc> tnkKeys = topNKeyDesc.getKeyColumns();
+    final Map<String, ExprNodeDesc> gbyMap = groupByDesc.getColumnExprMap();
+    if (tnkKeys.size() != gbyMap.size()) {
+      return;
+    }
+    final List<ExprNodeDesc> mappedColumns = new ArrayList<>();
+    for (ExprNodeDesc tnkKey : tnkKeys) {
+      final String tnkKeyString = tnkKey.getExprString();
+      if (!gbyMap.containsKey(tnkKeyString)) {
+        return;
+      }
+      mappedColumns.add(gbyMap.get(tnkKeyString));
     }
 
     // We can push it and remove it from above GroupBy.
-    return null;
+    final TopNKeyDesc newTopNKeyDesc =
+        new TopNKeyDesc(topNKeyDesc.getTopN(), topNKeyDesc.getColumnSortOrder(), mappedColumns);
+    groupByOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
+    pushdown(createOperatorBetween(groupByOperator.getParentOperators().get(0), groupByOperator,
+        newTopNKeyDesc));
   }
 
   /**
@@ -195,39 +207,93 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
    * the same, we can push it and remove it from above ReduceSink. If expression in TopNKey shared
    * common prefix with ReduceSink including same order, TopNKey could be pushed through ReduceSink
    * using that prefix and kept above it.
-   * @param currentOperator
+   * @param topNKeyOperator
    * @return
    */
-  private TopNKeyOperator pushdownThroughReduceSink(TopNKeyOperator currentOperator) {
-    final Operator<? extends OperatorDesc> parentOperator =
-        currentOperator.getParentOperators().get(0);
-    return null;
+  private void pushdownThroughReduceSink(TopNKeyOperator topNKeyOperator) throws SemanticException {
+    final ReduceSinkOperator reduceSinkOperator =
+        (ReduceSinkOperator) topNKeyOperator.getParentOperators().get(0);
+    final ReduceSinkDesc reduceSinkDesc = reduceSinkOperator.getConf();
+    final TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
+
+    // Same order?
+    if (!reduceSinkDesc.getOrder().equals(topNKeyDesc.getColumnSortOrder())) {
+      return;
+    }
+
+    // If TopNKey expression is same as GroupBy expression
+    final List<ExprNodeDesc> tnkKeys = topNKeyDesc.getKeyColumns();
+    final Map<String, ExprNodeDesc> rsMap = reduceSinkDesc.getColumnExprMap();
+    if (tnkKeys.size() != reduceSinkDesc.getKeyCols().size()) {
+      return;
+    }
+    final List<ExprNodeDesc> mappedColumns = new ArrayList<>();
+    for (ExprNodeDesc tnkKey : tnkKeys) {
+      final String tnkKeyString = tnkKey.getExprString();
+      if (!rsMap.containsKey(tnkKeyString)) {
+        return;
+      }
+      mappedColumns.add(rsMap.get(tnkKeyString));
+    }
+
+    // We can push it and remove it from above ReduceSink.
+    final TopNKeyDesc newTopNKeyDesc =
+        new TopNKeyDesc(topNKeyDesc.getTopN(), topNKeyDesc.getColumnSortOrder(), mappedColumns);
+    reduceSinkOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
+    pushdown(createOperatorBetween(reduceSinkOperator.getParentOperators().get(0),
+        reduceSinkOperator, newTopNKeyDesc));
   }
 
-  private TopNKeyOperator pushdownThroughFullOuterJoin(TopNKeyOperator currentOperator) {
+  private void pushdownThroughFullOuterJoin(TopNKeyOperator topNKeyOperator) {
     final Operator<? extends OperatorDesc> parentOperator =
-        currentOperator.getParentOperators().get(0);
+        topNKeyOperator.getParentOperators().get(0);
     /*
      Push through FOJ. Push TopNKey expression without keys to largest input. Keep on top of FOJ.
      */
-    return null;
   }
 
-  private TopNKeyOperator pushdownThroughLeftOuterJoin(TopNKeyOperator currentOperator) {
+  private void pushdownThroughLeftOuterJoin(TopNKeyOperator topNKeyOperator) {
     final Operator<? extends OperatorDesc> parentOperator =
-        currentOperator.getParentOperators().get(0);
+        topNKeyOperator.getParentOperators().get(0);
     /*
      Push through LOJ. If TopNKey expression refers fully to expressions from left input, push with
      rewriting of expressions and remove from top of LOJ. If TopNKey expression has a prefix that
      refers to expressions from left input, push with rewriting of those expressions and keep on
      top of LOJ.
      */
-    return null;
   }
 
-  private TopNKeyOperator pushdownThroughRightOuterJoin(TopNKeyOperator currentOperator) {
+  private void pushdownThroughRightOuterJoin(TopNKeyOperator topNKeyOperator) {
     final Operator<? extends OperatorDesc> parentOperator =
-        currentOperator.getParentOperators().get(0);
-    return null;
+        topNKeyOperator.getParentOperators().get(0);
+  }
+
+  private void pushdownThroughInnerJoin(TopNKeyOperator topNKeyOperator) throws SemanticException {
+    final JoinOperator joinOperator = (JoinOperator) topNKeyOperator.getParentOperators().get(0);
+    final JoinCondDesc joinCondDesc = joinOperator.getConf().getConds()[0];
+    final List<Operator<? extends OperatorDesc>> joinInputs = joinOperator.getParentOperators();
+    final ReduceSinkOperator leftInput = (ReduceSinkOperator) joinInputs.get(0);
+    final ReduceSinkOperator rightInput = (ReduceSinkOperator) joinInputs.get(1);
+    final ExprNodeDesc joinKey = joinOperator.getConf().getJoinKeys()[0][0];
+
+    // One key?
+    LOG.debug("one key?");
+    final TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
+    if (topNKeyDesc.getKeyColumns().size() != 1) {
+      return;
+    }
+    final ExprNodeDesc tnkKey = topNKeyDesc.getKeyColumns().get(0);
+
+    // Same key?
+    LOG.debug("same key?");
+    if (!ExprNodeDescUtils.isSame(joinKey, tnkKey)) {
+      return;
+    }
+
+    // Push down
+    LOG.debug("pushdown!");
+    joinOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
+    pushdown(createOperatorBetween(leftInput.getParentOperators().get(0), leftInput, topNKeyDesc));
+    pushdown(createOperatorBetween(rightInput.getParentOperators().get(0), rightInput, topNKeyDesc));
   }
 }
