@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -30,7 +30,6 @@ import org.apache.hadoop.hive.ql.lib.NodeProcessorCtx;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
 import org.apache.hadoop.hive.ql.plan.ExprNodeConstantDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
-import org.apache.hadoop.hive.ql.plan.ExprNodeDescUtils;
 import org.apache.hadoop.hive.ql.plan.GroupByDesc;
 import org.apache.hadoop.hive.ql.plan.JoinCondDesc;
 import org.apache.hadoop.hive.ql.plan.JoinDesc;
@@ -41,6 +40,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Stack;
@@ -227,13 +227,10 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     if (tnkKeys.size() != reduceSinkDesc.getKeyCols().size()) {
       return;
     }
-    final List<ExprNodeDesc> mappedColumns = new ArrayList<>();
-    for (ExprNodeDesc tnkKey : tnkKeys) {
-      final String tnkKeyString = tnkKey.getExprString();
-      if (!rsMap.containsKey(tnkKeyString)) {
-        return;
-      }
-      mappedColumns.add(rsMap.get(tnkKeyString));
+
+    final List<ExprNodeDesc> mappedColumns = mapColumns(topNKeyDesc.getKeyColumns(), rsMap);
+    if (mappedColumns == null) {
+      return;
     }
 
     // We can push it and remove it from above ReduceSink.
@@ -242,6 +239,19 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     reduceSinkOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
     pushdown(createOperatorBetween(reduceSinkOperator.getParentOperators().get(0),
         reduceSinkOperator, newTopNKeyDesc));
+  }
+
+  private static List<ExprNodeDesc> mapColumns(List<ExprNodeDesc> columns,
+      Map<String, ExprNodeDesc> rsMap) {
+    final List<ExprNodeDesc> mappedColumns = new ArrayList<>();
+    for (ExprNodeDesc column : columns) {
+      final String columnName = column.getExprString();
+      if (!rsMap.containsKey(columnName)) {
+        return null;
+      }
+      mappedColumns.add(rsMap.get(columnName));
+    }
+    return mappedColumns;
   }
 
   private void pushdownThroughFullOuterJoin(TopNKeyOperator topNKeyOperator) {
@@ -272,9 +282,10 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     final JoinOperator joinOperator = (JoinOperator) topNKeyOperator.getParentOperators().get(0);
     final JoinCondDesc joinCondDesc = joinOperator.getConf().getConds()[0];
     final List<Operator<? extends OperatorDesc>> joinInputs = joinOperator.getParentOperators();
-    final ReduceSinkOperator leftInput = (ReduceSinkOperator) joinInputs.get(0);
-    final ReduceSinkOperator rightInput = (ReduceSinkOperator) joinInputs.get(1);
+    final ReduceSinkOperator leftRS = (ReduceSinkOperator) joinInputs.get(0);
+    final ReduceSinkOperator rightRS = (ReduceSinkOperator) joinInputs.get(1);
     final ExprNodeDesc joinKey = joinOperator.getConf().getJoinKeys()[0][0];
+    LOG.debug("joinOperator.getConf().getJoinKeys()[0]: "+ Arrays.toString(joinOperator.getConf().getJoinKeys()[0]));
 
     // One key?
     LOG.debug("one key?");
@@ -282,18 +293,58 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     if (topNKeyDesc.getKeyColumns().size() != 1) {
       return;
     }
-    final ExprNodeDesc tnkKey = topNKeyDesc.getKeyColumns().get(0);
+    final ExprNodeDesc tnkKey = joinOperator.getColumnExprMap().get(
+        topNKeyDesc.getKeyColumns().get(0).getExprString());
+
+    LOG.debug("j.m: " + joinOperator.getColumnExprMap());
+    LOG.debug("t.k: " + topNKeyOperator.getConf().getKeyColumns());
 
     // Same key?
-    LOG.debug("same key?");
-    if (!ExprNodeDescUtils.isSame(joinKey, tnkKey)) {
+    LOG.debug("same key? " + joinKey + ", " + tnkKey);
+    if (tnkKey == null) {
+      return;
+    }
+    final String tnkKeyString = tnkKey.getExprString();
+    if (!joinKey.getExprString().equals(tnkKeyString.substring("VALUE.".length()))) {
       return;
     }
 
     // Push down
     LOG.debug("pushdown!");
+
+    LOG.debug("left.k: " + leftRS.getConf().getKeyCols());
+    LOG.debug("left.m: " + leftRS.getColumnExprMap());
+    LOG.debug("right.k: " + rightRS.getConf().getKeyCols());
+    LOG.debug("right.m: " + rightRS.getColumnExprMap());
+
     joinOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
-    pushdown(createOperatorBetween(leftInput.getParentOperators().get(0), leftInput, topNKeyDesc));
-    pushdown(createOperatorBetween(rightInput.getParentOperators().get(0), rightInput, topNKeyDesc));
+
+    final List<ExprNodeDesc> leftKeyCols = leftRS.getConf().getKeyCols();
+    if (leftKeyCols != null) {
+      final Operator<? extends OperatorDesc> leftRSParent = leftRS.getParentOperators().get(0);
+      final List<ExprNodeDesc> mappedColumns =
+          mapColumns(leftKeyCols, leftRSParent.getColumnExprMap());
+      LOG.debug("leftRSParent.s: " + leftRSParent.getSchema());
+      final TopNKeyDesc leftTnkDesc =
+          new TopNKeyDesc(topNKeyDesc.getTopN(), topNKeyDesc.getColumnSortOrder(), mappedColumns);
+      final TopNKeyOperator newTopNKeyOperator =
+          createOperatorBetween(leftRSParent, leftRS, leftTnkDesc);
+      newTopNKeyOperator.setColumnExprMap(leftRSParent.getColumnExprMap());
+//      pushdown(newTopNKeyOperator);
+    }
+
+    final List<ExprNodeDesc> rightKeyCols = rightRS.getConf().getKeyCols();
+    if (rightKeyCols != null) {
+      final Operator<? extends OperatorDesc> rightRSParent = rightRS.getParentOperators().get(0);
+      final List<ExprNodeDesc> mappedColumns =
+          mapColumns(rightKeyCols, rightRSParent.getColumnExprMap());
+      LOG.debug("rightRSParent.s: " + rightRSParent.getSchema());
+      final TopNKeyDesc rightTnkDesc =
+          new TopNKeyDesc(topNKeyDesc.getTopN(), topNKeyDesc.getColumnSortOrder(), mappedColumns);
+      final TopNKeyOperator newTopNKeyOperator =
+          createOperatorBetween(rightRSParent, rightRS, rightTnkDesc);
+      newTopNKeyOperator.setColumnExprMap(rightRSParent.getColumnExprMap());
+//      pushdown(newTopNKeyOperator);
+    }
   }
 }
