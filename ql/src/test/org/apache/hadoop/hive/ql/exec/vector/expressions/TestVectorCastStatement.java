@@ -189,9 +189,14 @@ public class TestVectorCastStatement {
 
     for (PrimitiveCategory targetPrimitiveCategory : PrimitiveCategory.values()) {
 
+      if (targetPrimitiveCategory == PrimitiveCategory.INTERVAL_YEAR_MONTH ||
+          targetPrimitiveCategory == PrimitiveCategory.INTERVAL_DAY_TIME) {
+        if (primitiveCategory != PrimitiveCategory.STRING) {
+          continue;
+        }
+      }
+
       if (targetPrimitiveCategory == PrimitiveCategory.VOID ||
-          targetPrimitiveCategory == PrimitiveCategory.INTERVAL_YEAR_MONTH ||
-          targetPrimitiveCategory == PrimitiveCategory.INTERVAL_DAY_TIME ||
           targetPrimitiveCategory == PrimitiveCategory.TIMESTAMPLOCALTZ ||
           targetPrimitiveCategory == PrimitiveCategory.UNKNOWN) {
         continue;
@@ -273,7 +278,8 @@ public class TestVectorCastStatement {
     }
 
     List<GenerationSpec> generationSpecList = new ArrayList<GenerationSpec>();
-    List<DataTypePhysicalVariation> explicitDataTypePhysicalVariationList = new ArrayList<DataTypePhysicalVariation>();
+    List<DataTypePhysicalVariation> explicitDataTypePhysicalVariationList =
+        new ArrayList<DataTypePhysicalVariation>();
     generationSpecList.add(generationSpec);
     explicitDataTypePhysicalVariationList.add(dataTypePhysicalVariation);
 
@@ -284,8 +290,8 @@ public class TestVectorCastStatement {
         explicitDataTypePhysicalVariationList);
 
     List<String> columns = new ArrayList<String>();
-    columns.add("col0");
-    ExprNodeColumnDesc col1Expr = new ExprNodeColumnDesc(typeInfo, "col0", "table", false);
+    columns.add("col1");
+    ExprNodeColumnDesc col1Expr = new ExprNodeColumnDesc(typeInfo, "col1", "table", false);
 
     List<ExprNodeDesc> children = new ArrayList<ExprNodeDesc>();
     children.add(col1Expr);
@@ -443,7 +449,12 @@ public class TestVectorCastStatement {
     int[] selected = batch.selected;
     for (int logicalIndex = 0; logicalIndex < batch.size; logicalIndex++) {
       final int batchIndex = (selectedInUse ? selected[logicalIndex] : logicalIndex);
+
+      try {
       resultVectorExtractRow.extractRow(batch, batchIndex, scrqtchRow);
+      } catch (Exception e) {
+        System.out.println("here");
+      }
 
       // UNDONE: Need to copy the object.
       resultObjects[rowIndex++] = scrqtchRow[0];

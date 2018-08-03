@@ -1,4 +1,4 @@
-/*
+/**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -15,21 +15,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.hadoop.hive.ql.io.orc.encoded;
 
-package org.apache.hadoop.hive.ql.exec.vector.expressions;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Vectorized version of TO_DATE(TIMESTAMP)/TO_DATE(DATE).
- * As TO_DATE() now returns DATE type, this should be the same behavior as the DATE cast operator.
- */
-public class VectorUDFDateLong extends CastLongToDate {
-  private static final long serialVersionUID = 1L;
+import org.apache.hadoop.hive.common.io.Allocator;
+import org.apache.hadoop.hive.common.io.Allocator.BufferObjectFactory;
+import org.apache.hadoop.hive.common.io.encoded.MemoryBuffer;
 
-  public VectorUDFDateLong() {
-    super();
-  }
-
-  public VectorUDFDateLong(int inputColumn, int outputColumnNum) {
-    super(inputColumn, outputColumnNum);
-  }
+public interface StoppableAllocator extends Allocator {
+  /** Stoppable allocate method specific to branch-2. */
+  void allocateMultiple(MemoryBuffer[] dest, int size, BufferObjectFactory factory,
+      AtomicBoolean isStopped) throws AllocatorOutOfMemoryException;
 }
