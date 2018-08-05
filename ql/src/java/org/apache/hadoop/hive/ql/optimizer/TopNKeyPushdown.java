@@ -77,6 +77,7 @@ public class TopNKeyPushdown implements NodeProcessor {
 
   private void checkAndPushdown(TopNKeyOperator topNKeyOperator) throws SemanticException {
     Operator<? extends OperatorDesc> parentOperator = topNKeyOperator.getParentOperators().get(0);
+    LOG.debug("parentOperator: " + parentOperator);
     switch (parentOperator.getType()) {
       case GROUPBY:
         handleGroupBy(topNKeyOperator);
@@ -86,7 +87,7 @@ public class TopNKeyPushdown implements NodeProcessor {
         handleSelect(topNKeyOperator);
         break;
 
-      case FILTER:
+//      case FILTER:
       case FORWARD:
       case LIMIT:
         moveDown(parentOperator, topNKeyOperator);
@@ -104,7 +105,6 @@ public class TopNKeyPushdown implements NodeProcessor {
           parentOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
         }
         break;
-
     }
   }
 
@@ -114,19 +114,111 @@ public class TopNKeyPushdown implements NodeProcessor {
     TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
     JoinDesc joinDesc = joinOperator.getConf();
 
-    // Supports inner joins only
+    final int firstType = joinDesc.getConds()[0].getType();
     for (JoinCondDesc cond : joinDesc.getConds()) {
-      if (cond.getType() != JoinDesc.INNER_JOIN) {
+      if (cond.getType() != firstType) {
         return;
       }
     }
+    switch (joinDesc.getConds()[0].getType()) {
+      case JoinDesc.INNER_JOIN:
+        handleInnerJoin(joinOperator, topNKeyDesc);
+        break;
+      case JoinDesc.LEFT_OUTER_JOIN:
+        handleLeftOuterJoin(joinOperator, topNKeyOperator);
+        break;
+      case JoinDesc.RIGHT_OUTER_JOIN:
+        handleRightOuterJoin(joinOperator, topNKeyDesc);
+        break;
+      case JoinDesc.FULL_OUTER_JOIN:
+        handleFullOuterJoin(joinOperator, topNKeyDesc);
+        break;
+    }
+  }
+
+  /**
+   * Push through FOJ. Push TopNKey expression without keys to largest input. Keep on top of FOJ.
+   * @param joinOperator
+   * @param topNKeyDesc
+   * @throws SemanticException
+   */
+  private void handleFullOuterJoin(CommonJoinOperator<? extends OperatorDesc> joinOperator,
+      TopNKeyDesc topNKeyDesc) throws SemanticException {
+    LOG.debug("joinOperator: " + joinOperator);
+    LOG.debug("joinDesc: " + joinOperator.getConf());
+//
+//    for (Operator<? extends OperatorDesc> parentOperator : joinOperator.getParentOperators()) {
+//      ReduceSinkOperator reduceSinkOperator = (ReduceSinkOperator) parentOperator;
+//      ReduceSinkDesc reduceSinkDesc = reduceSinkOperator.getConf();
+//
+//      List<ExprNodeDesc> keysWithoutLargestInput =
+//          mapColumns(joinOperator.getColumnExprMap(), topNKeyDesc.getKeyColumns());
+//    }
+  }
+
+  /**
+   * Push through LOJ. If TopNKey expression refers fully to expressions from left input, push with
+   * rewriting of expressions and remove from top of LOJ. If TopNKey expression has a prefix that
+   * refers to expressions from left input, push with rewriting of those expressions and keep on
+   * top of LOJ.
+   * @param joinOperator
+   * @param topNKeyOperator
+   * @throws SemanticException
+   */
+  private void handleLeftOuterJoin(CommonJoinOperator<? extends OperatorDesc> joinOperator,
+      TopNKeyOperator topNKeyOperator) throws SemanticException {
+
+    TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
+    ReduceSinkOperator reduceSinkOperator = (ReduceSinkOperator) joinOperator.getParentOperators().get(0);
+    ReduceSinkDesc reduceSinkDesc = reduceSinkOperator.getConf();
+
+    List<ExprNodeDesc> mappedKeyColumns = mapColumns(reduceSinkOperator.getColumnExprMap(),
+        mapColumns(joinOperator.getColumnExprMap(), topNKeyDesc.getKeyColumns()));
+
+    if (mappedKeyColumns.isEmpty()) {
+      return;
+    }
+
+    TopNKeyDesc newTopNKeyDesc = new TopNKeyDesc(topNKeyDesc.getTopN(),
+        mapOrder(topNKeyDesc.getColumnSortOrder(), reduceSinkDesc.getKeyCols(), mappedKeyColumns),
+        mappedKeyColumns);
+
+    TopNKeyOperator newTopNKeyOperator = copyDown(reduceSinkOperator, newTopNKeyDesc);
+    if (newTopNKeyOperator != null) {
+      checkAndPushdown(newTopNKeyOperator);
+    }
+
+    // If TopNKey expression has a prefix that refers to expressions from left input,
+//    if (joinOperator.getConf().getLeftAlias()) {
+//      TopNKeyDesc newTopNKeyDesc = new TopNKeyDesc(topNKeyDesc.getTopN(), );
+//
+//      // Push with rewriting of those expressions and keep on top of LOJ.
+//      copyDown(leftInput, newTopNKeyDesc);
+//      checkAndPushdown(topNKeyOperator);
+//      return;
+//    }
+  }
+
+  /**
+   * Push through ROJ. Same as for LOJ, but change left to right.
+   * @param joinOperator
+   * @param topNKeyDesc
+   * @throws SemanticException
+   */
+  private void handleRightOuterJoin(CommonJoinOperator<? extends OperatorDesc> joinOperator,
+      TopNKeyDesc topNKeyDesc) throws SemanticException {
+
+  }
+
+  private void handleInnerJoin(CommonJoinOperator<? extends OperatorDesc> joinOperator,
+      TopNKeyDesc topNKeyDesc) throws SemanticException {
 
     for (Operator<? extends OperatorDesc> parentOperator : joinOperator.getParentOperators()) {
       ReduceSinkOperator reduceSinkOperator = (ReduceSinkOperator) parentOperator;
       ReduceSinkDesc reduceSinkDesc = reduceSinkOperator.getConf();
 
       List<ExprNodeDesc> mappedKeyColumns = mapColumns(reduceSinkDesc.getColumnExprMap(),
-          mapColumns(joinDesc.getColumnExprMap(), topNKeyDesc.getKeyColumns()));
+          mapColumns(joinOperator.getColumnExprMap(), topNKeyDesc.getKeyColumns()));
 
       // There should be mapped key cols
       if (mappedKeyColumns.isEmpty()) {
@@ -137,7 +229,7 @@ public class TopNKeyPushdown implements NodeProcessor {
           mapOrder(topNKeyDesc.getColumnSortOrder(), reduceSinkDesc.getKeyCols(), mappedKeyColumns),
           mappedKeyColumns);
 
-      TopNKeyOperator newTopNKeyOperator = copyDown(newTopNKeyDesc, reduceSinkOperator);
+      TopNKeyOperator newTopNKeyOperator = copyDown(reduceSinkOperator, newTopNKeyDesc);
       if (newTopNKeyOperator != null) {
         checkAndPushdown(newTopNKeyOperator);
       }
@@ -230,8 +322,8 @@ public class TopNKeyPushdown implements NodeProcessor {
     }
   }
 
-  private TopNKeyOperator copyDown(TopNKeyDesc newDesc, Operator<? extends OperatorDesc>
-      baseOperator) {
+  private TopNKeyOperator copyDown(Operator<? extends OperatorDesc>
+      baseOperator, TopNKeyDesc newDesc) {
 
     Operator<? extends OperatorDesc> parentOperator = baseOperator.getParentOperators().get(0);
 
