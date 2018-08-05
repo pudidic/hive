@@ -304,15 +304,15 @@ STAGE PLANS:
                   alias: clustergroupby
                   filterExpr: (ds = '101') (type: boolean)
                   Statistics: Num rows: 500 Data size: 43500 Basic stats: COMPLETE Column stats: COMPLETE
-                  Select Operator
-                    expressions: length(key) (type: int)
-                    outputColumnNames: _col0
+                  Top N Key Operator
+                    sort order: +
+                    keys: length(key) (type: int)
                     Statistics: Num rows: 500 Data size: 43500 Basic stats: COMPLETE Column stats: COMPLETE
-                    Top N Key Operator
-                      sort order: +
-                      keys: _col0 (type: int)
+                    top n: 10
+                    Select Operator
+                      expressions: length(key) (type: int)
+                      outputColumnNames: _col0
                       Statistics: Num rows: 500 Data size: 43500 Basic stats: COMPLETE Column stats: COMPLETE
-                      top n: 10
                       Group By Operator
                         aggregations: count()
                         keys: _col0 (type: int)
@@ -391,15 +391,15 @@ STAGE PLANS:
                   alias: clustergroupby
                   filterExpr: (ds = '101') (type: boolean)
                   Statistics: Num rows: 500 Data size: 43500 Basic stats: COMPLETE Column stats: COMPLETE
-                  Select Operator
-                    expressions: abs(length(key)) (type: int)
-                    outputColumnNames: _col0
+                  Top N Key Operator
+                    sort order: +
+                    keys: abs(length(key)) (type: int)
                     Statistics: Num rows: 500 Data size: 43500 Basic stats: COMPLETE Column stats: COMPLETE
-                    Top N Key Operator
-                      sort order: +
-                      keys: _col0 (type: int)
+                    top n: 10
+                    Select Operator
+                      expressions: abs(length(key)) (type: int)
+                      outputColumnNames: _col0
                       Statistics: Num rows: 500 Data size: 43500 Basic stats: COMPLETE Column stats: COMPLETE
-                      top n: 10
                       Group By Operator
                         aggregations: count()
                         keys: _col0 (type: int)

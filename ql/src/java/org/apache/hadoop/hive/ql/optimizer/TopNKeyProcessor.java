@@ -109,6 +109,7 @@ public class TopNKeyProcessor implements NodeProcessor {
     newOperator.getChildOperators().add(child);
     child.getParentOperators().add(newOperator);
     parent.removeChild(child);
+    newOperator.setColumnExprMap(parent.getColumnExprMap());
     return (TopNKeyOperator) newOperator;
   }
 }
