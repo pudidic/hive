@@ -37,6 +37,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Stack;
 
@@ -97,19 +98,27 @@ public class TopNKeyProcessor implements NodeProcessor {
     // Insert a new top n key operator between the group by operator and its parent
     TopNKeyDesc topNKeyDesc = new TopNKeyDesc(reduceSinkDesc.getTopN(), reduceSinkDesc.getOrder(),
         groupByKeyColumns);
-    createOperatorBetween(parentOperator, groupByOperator, topNKeyDesc);
+    createOperatorBetween(groupByOperator, topNKeyDesc);
     return null;
   }
 
-  static TopNKeyOperator createOperatorBetween(Operator<? extends OperatorDesc> parent,
-      Operator<? extends OperatorDesc> child, OperatorDesc operatorDesc) {
-    final Operator<? extends OperatorDesc> newOperator = OperatorFactory.getAndMakeChild(
-        child.getCompilationOpContext(), operatorDesc,
-        new RowSchema(child.getSchema()), new Operator[] {parent});
-    newOperator.getChildOperators().add(child);
-    child.getParentOperators().add(newOperator);
-    parent.removeChild(child);
-    newOperator.setColumnExprMap(parent.getColumnExprMap());
+  static TopNKeyOperator createOperatorBetween(Operator<? extends OperatorDesc> child, OperatorDesc operatorDesc) {
+//    assert child.getNumParent() == 1;
+    final List<Operator<? extends OperatorDesc>> parents = child.getParentOperators();
+
+    final Operator<? extends OperatorDesc> newOperator =
+        OperatorFactory.getAndMakeChild(
+            child.getCompilationOpContext(), operatorDesc,
+            new RowSchema(parents.get(0).getSchema()), child.getParentOperators());
+    LOG.debug("Created " + newOperator + " between " + parents + " and " + child);
+    newOperator.setParentOperators(new ArrayList<>(parents));
+    newOperator.setChildOperators(new ArrayList<>(Collections.singletonList(child)));
+
+    for (Operator<? extends OperatorDesc> parent : parents) {
+      parent.removeChild(child);
+    }
+    child.setParentOperators(new ArrayList<>(Collections.singletonList(newOperator)));
+
     return (TopNKeyOperator) newOperator;
   }
 }
