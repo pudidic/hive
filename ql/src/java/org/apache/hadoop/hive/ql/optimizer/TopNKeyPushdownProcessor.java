@@ -108,7 +108,24 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
               break;
           }
         }
+
+      case TOPNKEY:
+        if (hasSameTopNKeyDesc(parentOperator, topNKeyOperator.getConf())) {
+          parentOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
+        }
+        break;
     }
+  }
+
+  private boolean hasSameTopNKeyDesc(Operator<? extends OperatorDesc> operator, TopNKeyDesc desc) {
+    if (operator instanceof TopNKeyOperator) {
+      TopNKeyOperator topNKeyOperator = (TopNKeyOperator) operator;
+      TopNKeyDesc opDesc = topNKeyOperator.getConf();
+      if (opDesc.isSame(desc)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private void moveDown(TopNKeyOperator operator) throws SemanticException {
@@ -285,35 +302,38 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
   private void pushdownThroughInnerJoin(TopNKeyOperator topNKeyOperator) throws SemanticException {
     final JoinOperator joinOperator = (JoinOperator) topNKeyOperator.getParentOperators().get(0);
     final List<Operator<? extends OperatorDesc>> joinInputs = joinOperator.getParentOperators();
-    final ReduceSinkOperator leftRS = (ReduceSinkOperator) joinInputs.get(0);
-    final ReduceSinkOperator rightRS = (ReduceSinkOperator) joinInputs.get(1);
-
-    // One key?
     final TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
 
     // Push down
 //    joinOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
-//
-    final List<ExprNodeDesc> leftMappedColumns =
-        mapColumns(mapColumns(topNKeyDesc.getKeyColumns(), joinOperator.getColumnExprMap()),
-            leftRS.getColumnExprMap());
-    if (!leftMappedColumns.isEmpty()) {
-      final TopNKeyDesc leftTnkDesc =
-          new TopNKeyDesc(topNKeyDesc.getTopN(), topNKeyDesc.getColumnSortOrder(), leftMappedColumns);
-      final TopNKeyOperator newTopNKeyOperator =
-          createOperatorBetween(leftRS, leftTnkDesc);
-      pushdown(newTopNKeyOperator);
-    }
 
-    final List<ExprNodeDesc> rightMappedColumns =
-        mapColumns(mapColumns(topNKeyDesc.getKeyColumns(), joinOperator.getColumnExprMap()),
-            rightRS.getColumnExprMap());
-    if (!rightMappedColumns.isEmpty()) {
-      final TopNKeyDesc rightTnkDesc =
-          new TopNKeyDesc(topNKeyDesc.getTopN(), topNKeyDesc.getColumnSortOrder(), rightMappedColumns);
-      final TopNKeyOperator newTopNKeyOperator =
-          createOperatorBetween(rightRS, rightTnkDesc);
-      pushdown(newTopNKeyOperator);
+    for (Operator<? extends OperatorDesc> joinInput : joinInputs) {
+      final ReduceSinkOperator reduceSink = (ReduceSinkOperator) joinInput;
+      final List<ExprNodeDesc> mappedColumns = mapColumns(mapColumns(topNKeyDesc.getKeyColumns(),
+          joinOperator.getColumnExprMap()), reduceSink.getColumnExprMap());
+      if (!mappedColumns.isEmpty()) {
+        final String mappedOrder = mapOrder(topNKeyDesc.getColumnSortOrder(),
+            reduceSink.getConf().getKeyCols(), mappedColumns);
+        final TopNKeyDesc newTopNKeyDesc = new TopNKeyDesc(topNKeyDesc.getTopN(), mappedOrder,
+            mappedColumns);
+        final TopNKeyOperator newTopNKeyOperator = createOperatorBetween(reduceSink, newTopNKeyDesc);
+        pushdown(newTopNKeyOperator);
+      }
     }
+  }
+
+  private static String mapOrder(String order, List<ExprNodeDesc> parentCols, List<ExprNodeDesc>
+      mappedCols) {
+
+    StringBuilder builder = new StringBuilder();
+    int index = 0;
+    for (ExprNodeDesc mappedCol : mappedCols) {
+      if (parentCols.contains(mappedCol)) {
+        builder.append(order.charAt(index++));
+      } else {
+        builder.append("+");
+      }
+    }
+    return builder.toString();
   }
 }
