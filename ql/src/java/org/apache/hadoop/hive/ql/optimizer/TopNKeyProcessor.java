@@ -82,8 +82,8 @@ public class TopNKeyProcessor implements NodeProcessor {
     // Check whether RS keys are same as GBY keys
     List<ExprNodeDesc> groupByKeyColumns = groupByDesc.getKeys();
     List<ExprNodeDesc> mappedColumns = new ArrayList<>();
-    for (ExprNodeDesc rsKey : reduceSinkDesc.getKeyCols()) {
-      mappedColumns.add(groupByDesc.getColumnExprMap().get(rsKey.getExprString()));
+    for (ExprNodeDesc columns : reduceSinkDesc.getKeyCols()) {
+      mappedColumns.add(groupByDesc.getColumnExprMap().get(columns.getExprString()));
     }
     if (!ExprNodeDescUtils.isSame(mappedColumns, groupByKeyColumns)) {
       return null;
@@ -103,14 +103,12 @@ public class TopNKeyProcessor implements NodeProcessor {
   }
 
   static TopNKeyOperator createOperatorBetween(Operator<? extends OperatorDesc> child, OperatorDesc operatorDesc) {
-//    assert child.getNumParent() == 1;
     final List<Operator<? extends OperatorDesc>> parents = child.getParentOperators();
 
     final Operator<? extends OperatorDesc> newOperator =
         OperatorFactory.getAndMakeChild(
             child.getCompilationOpContext(), operatorDesc,
             new RowSchema(parents.get(0).getSchema()), child.getParentOperators());
-    LOG.debug("Created " + newOperator + " between " + parents + " and " + child);
     newOperator.setParentOperators(new ArrayList<>(parents));
     newOperator.setChildOperators(new ArrayList<>(Collections.singletonList(child)));
 

@@ -1201,7 +1201,7 @@ public class TezCompiler extends TaskCompiler {
     // The dispatcher fires the processor corresponding to the closest matching
     // rule and passes the context along
     Dispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
-    List<Node> topNodes = new ArrayList<Node>();
+    List<Node> topNodes = new ArrayList<>();
     topNodes.addAll(procCtx.parseContext.getTopOps().values());
     GraphWalker ogw = new DefaultGraphWalker(disp);
     ogw.startWalking(topNodes, null);

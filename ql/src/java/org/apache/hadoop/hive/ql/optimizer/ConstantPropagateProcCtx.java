@@ -99,8 +99,7 @@ public class ConstantPropagateProcCtx implements NodeProcessorCtx {
       return constants;
     }
     RowSchema rs = op.getSchema();
-    LOG.debug("Getting constants of op:" + op);
-    LOG.debug("with rs:" + rs.getSignature());
+    LOG.debug("Getting constants of op:" + op + " with rs:" + rs);
 
     if (op.getParentOperators() == null) {
       return constants;
