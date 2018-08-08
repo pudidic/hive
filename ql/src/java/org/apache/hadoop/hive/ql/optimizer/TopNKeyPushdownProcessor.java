@@ -276,12 +276,39 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     return mappedColumns;
   }
 
-  private void pushdownThroughFullOuterJoin(TopNKeyOperator topNKeyOperator) {
-    final Operator<? extends OperatorDesc> parentOperator =
-        topNKeyOperator.getParentOperators().get(0);
+  private void pushdownThroughFullOuterJoin(TopNKeyOperator topNKeyOperator) throws SemanticException {
+    final CommonJoinOperator<? extends OperatorDesc> joinOperator =
+        (CommonJoinOperator<? extends OperatorDesc>) topNKeyOperator.getParentOperators().get(0);
+    final TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
     /*
      Push through FOJ. Push TopNKey expression without keys to largest input. Keep on top of FOJ.
      */
+    final ReduceSinkOperator leftReduceSink =
+        (ReduceSinkOperator) joinOperator.getParentOperators().get(0);
+    final ReduceSinkOperator rightReduceSink =
+        (ReduceSinkOperator) joinOperator.getParentOperators().get(1);
+    final ReduceSinkOperator largetReduceSink;
+    final ReduceSinkOperator smallReduceSink;
+    if (leftReduceSink.getStatistics().getDataSize() >
+        rightReduceSink.getStatistics().getDataSize()) {
+      largetReduceSink = leftReduceSink;
+      smallReduceSink = rightReduceSink;
+    } else {
+      largetReduceSink = rightReduceSink;
+      smallReduceSink = leftReduceSink;
+    }
+    final List<ExprNodeDesc> mappedLargeColumns = mapColumns(mapColumns(topNKeyDesc.getKeyColumns(),
+        joinOperator.getColumnExprMap()), largetReduceSink.getColumnExprMap());
+    final List<ExprNodeDesc> mappedSmallColumns = mapColumns(mapColumns(topNKeyDesc.getKeyColumns(),
+        joinOperator.getColumnExprMap()), smallReduceSink.getColumnExprMap());
+    mappedSmallColumns.removeAll(mappedLargeColumns);
+
+    final String mappedOrder = mapOrder(topNKeyDesc.getColumnSortOrder(),
+        smallReduceSink.getConf().getKeyCols(), mappedSmallColumns);
+    final TopNKeyDesc newTopNKeyDesc = new TopNKeyDesc(topNKeyDesc.getTopN(), mappedOrder,
+        mappedSmallColumns);
+    final TopNKeyOperator newTopNKeyOperator = copyDown(smallReduceSink, newTopNKeyDesc);
+    pushdown(newTopNKeyOperator);
   }
 
   private void pushdownThroughLeftOuterJoin(TopNKeyOperator topNKeyOperator)
@@ -323,17 +350,15 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     if (mappedColumns.isEmpty()) {
       return;
     }
-
-    // If all columns are mapped
     final String mappedOrder = mapOrder(topNKeyDesc.getColumnSortOrder(),
         reduceSinkDesc.getKeyCols(), mappedColumns);
 
-    // Otherwise, copy down
     final TopNKeyDesc newTopNKeyDesc = new TopNKeyDesc(topNKeyDesc.getTopN(), mappedOrder,
         mappedColumns);
     final TopNKeyOperator newTopNKeyOperator = copyDown(reduceSinkOperator, newTopNKeyDesc);
     pushdown(newTopNKeyOperator);
 
+    // If all columns are mapped, remove from top
     if (topNKeyDesc.getKeyColumns().size() == mappedColumns.size()) {
       joinOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
     }

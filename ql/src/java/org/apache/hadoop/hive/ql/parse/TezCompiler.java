@@ -155,10 +155,6 @@ public class TezCompiler extends TaskCompiler {
     perfLogger.PerfLogEnd(this.getClass().getName(), PerfLogger.TEZ_COMPILER, "Run top n key optimization");
 
     perfLogger.PerfLogBegin(this.getClass().getName(), PerfLogger.TEZ_COMPILER);
-    runTopNKeyPushdown(procCtx);
-    perfLogger.PerfLogEnd(this.getClass().getName(), PerfLogger.TEZ_COMPILER, "Run top n key pushdown");
-
-    perfLogger.PerfLogBegin(this.getClass().getName(), PerfLogger.TEZ_COMPILER);
     // setup dynamic partition pruning where possible
     runDynamicPartitionPruning(procCtx, inputs, outputs);
     perfLogger.PerfLogEnd(this.getClass().getName(), PerfLogger.TEZ_COMPILER, "Setup dynamic partition pruning");
@@ -426,6 +422,12 @@ public class TezCompiler extends TaskCompiler {
 
     opRules.put(new RuleRegExp("Convert Join to Map-join",
         JoinOperator.getOperatorName() + "%"), new ConvertJoinMapJoin());
+
+    if (procCtx.conf.getBoolVar(ConfVars.HIVE_OPTIMIZE_TOPNKEY)) {
+      opRules.put(
+          new RuleRegExp("Top n key pushdown", TopNKeyOperator.getOperatorName() + "%"),
+          new TopNKeyPushdownProcessor());
+    }
 
     // The dispatcher fires the processor corresponding to the closest matching
     // rule and passes the context along
@@ -1202,26 +1204,6 @@ public class TezCompiler extends TaskCompiler {
     // rule and passes the context along
     Dispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
     List<Node> topNodes = new ArrayList<>();
-    topNodes.addAll(procCtx.parseContext.getTopOps().values());
-    GraphWalker ogw = new DefaultGraphWalker(disp);
-    ogw.startWalking(topNodes, null);
-  }
-
-  private static void runTopNKeyPushdown(OptimizeTezProcContext procCtx)
-      throws SemanticException {
-    if (!procCtx.conf.getBoolVar(ConfVars.HIVE_OPTIMIZE_TOPNKEY)) {
-      return;
-    }
-
-    Map<Rule, NodeProcessor> opRules = new LinkedHashMap<Rule, NodeProcessor>();
-    opRules.put(
-        new RuleRegExp("Top n key pushdown", TopNKeyOperator.getOperatorName() + "%"),
-        new TopNKeyPushdownProcessor());
-
-    // The dispatcher fires the processor corresponding to the closest matching
-    // rule and passes the context along
-    Dispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
-    List<Node> topNodes = new ArrayList<Node>();
     topNodes.addAll(procCtx.parseContext.getTopOps().values());
     GraphWalker ogw = new DefaultGraphWalker(disp);
     ogw.startWalking(topNodes, null);
