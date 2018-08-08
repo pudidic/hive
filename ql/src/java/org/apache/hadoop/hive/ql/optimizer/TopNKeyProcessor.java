@@ -98,11 +98,11 @@ public class TopNKeyProcessor implements NodeProcessor {
     // Insert a new top n key operator between the group by operator and its parent
     TopNKeyDesc topNKeyDesc = new TopNKeyDesc(reduceSinkDesc.getTopN(), reduceSinkDesc.getOrder(),
         groupByKeyColumns);
-    createOperatorBetween(groupByOperator, topNKeyDesc);
+    copyDown(groupByOperator, topNKeyDesc);
     return null;
   }
 
-  static TopNKeyOperator createOperatorBetween(Operator<? extends OperatorDesc> child, OperatorDesc operatorDesc) {
+  static TopNKeyOperator copyDown(Operator<? extends OperatorDesc> child, OperatorDesc operatorDesc) {
     final List<Operator<? extends OperatorDesc>> parents = child.getParentOperators();
 
     final Operator<? extends OperatorDesc> newOperator =

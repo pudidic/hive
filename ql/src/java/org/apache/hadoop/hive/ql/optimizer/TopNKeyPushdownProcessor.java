@@ -17,8 +17,8 @@
  */
 package org.apache.hadoop.hive.ql.optimizer;
 
+import org.apache.hadoop.hive.ql.exec.CommonJoinOperator;
 import org.apache.hadoop.hive.ql.exec.GroupByOperator;
-import org.apache.hadoop.hive.ql.exec.JoinOperator;
 import org.apache.hadoop.hive.ql.exec.Operator;
 import org.apache.hadoop.hive.ql.exec.ReduceSinkOperator;
 import org.apache.hadoop.hive.ql.exec.SelectOperator;
@@ -45,7 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Stack;
 
-import static org.apache.hadoop.hive.ql.optimizer.TopNKeyProcessor.createOperatorBetween;
+import static org.apache.hadoop.hive.ql.optimizer.TopNKeyProcessor.copyDown;
 
 public class TopNKeyPushdownProcessor implements NodeProcessor {
   private static final Logger LOG = LoggerFactory.getLogger(TopNKeyPushdownProcessor.class);
@@ -87,7 +87,8 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
       case MAPJOIN:
       case MERGEJOIN:
       case JOIN:
-        JoinOperator joinOperator = (JoinOperator) parentOperator;
+        CommonJoinOperator<? extends OperatorDesc> joinOperator =
+            (CommonJoinOperator<? extends OperatorDesc>) parentOperator;
         JoinCondDesc[] joinConds = joinOperator.getConf().getConds();
         if (joinConds.length == 1) {
           switch (joinConds[0].getType()) {
@@ -149,7 +150,7 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
         topNKeyDesc.getColumnSortOrder(), topNKeyDesc.getKeyColumns());
     unionOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
 
-    pushdown(createOperatorBetween(unionOperator, newTopNKeyDesc));
+    pushdown(copyDown(unionOperator, newTopNKeyDesc));
   }
 
   private void pushdownThroughSelect(TopNKeyOperator topNKeyOperator) throws SemanticException {
@@ -219,7 +220,7 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     final TopNKeyDesc newTopNKeyDesc =
         new TopNKeyDesc(topNKeyDesc.getTopN(), topNKeyDesc.getColumnSortOrder(), mappedColumns);
     groupByOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
-    pushdown(createOperatorBetween(groupByOperator, newTopNKeyDesc));
+    pushdown(copyDown(groupByOperator, newTopNKeyDesc));
   }
 
   /**
@@ -257,7 +258,7 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     final TopNKeyDesc newTopNKeyDesc =
         new TopNKeyDesc(topNKeyDesc.getTopN(), topNKeyDesc.getColumnSortOrder(), mappedColumns);
     reduceSinkOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
-    pushdown(createOperatorBetween(reduceSinkOperator, newTopNKeyDesc));
+    pushdown(copyDown(reduceSinkOperator, newTopNKeyDesc));
   }
 
   private static List<ExprNodeDesc> mapColumns(List<ExprNodeDesc> columns,
@@ -302,7 +303,8 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
      top of LOJ.
      */
     final TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
-    final JoinOperator joinOperator = (JoinOperator) topNKeyOperator.getParentOperators().get(0);
+    final CommonJoinOperator<? extends OperatorDesc> joinOperator =
+        (CommonJoinOperator<? extends OperatorDesc>) topNKeyOperator.getParentOperators().get(0);
     final List<Operator<? extends OperatorDesc>> joinInputs = joinOperator.getParentOperators();
 
     // Null order check
@@ -322,16 +324,24 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
       return;
     }
 
+    // If all columns are mapped
     final String mappedOrder = mapOrder(topNKeyDesc.getColumnSortOrder(),
         reduceSinkDesc.getKeyCols(), mappedColumns);
+
+    // Otherwise, copy down
     final TopNKeyDesc newTopNKeyDesc = new TopNKeyDesc(topNKeyDesc.getTopN(), mappedOrder,
         mappedColumns);
-    final TopNKeyOperator newTopNKeyOperator = createOperatorBetween(reduceSinkOperator, newTopNKeyDesc);
+    final TopNKeyOperator newTopNKeyOperator = copyDown(reduceSinkOperator, newTopNKeyDesc);
     pushdown(newTopNKeyOperator);
+
+    if (topNKeyDesc.getKeyColumns().size() == mappedColumns.size()) {
+      joinOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
+    }
   }
 
   private void pushdownThroughInnerJoin(TopNKeyOperator topNKeyOperator) throws SemanticException {
-    final JoinOperator joinOperator = (JoinOperator) topNKeyOperator.getParentOperators().get(0);
+    final CommonJoinOperator<? extends OperatorDesc> joinOperator =
+        (CommonJoinOperator<? extends OperatorDesc>) topNKeyOperator.getParentOperators().get(0);
     final List<Operator<? extends OperatorDesc>> joinInputs = joinOperator.getParentOperators();
     final TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
 
@@ -347,7 +357,7 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
             reduceSink.getConf().getKeyCols(), mappedColumns);
         final TopNKeyDesc newTopNKeyDesc = new TopNKeyDesc(topNKeyDesc.getTopN(), mappedOrder,
             mappedColumns);
-        final TopNKeyOperator newTopNKeyOperator = createOperatorBetween(reduceSink, newTopNKeyDesc);
+        final TopNKeyOperator newTopNKeyOperator = copyDown(reduceSink, newTopNKeyDesc);
         pushdown(newTopNKeyOperator);
       }
     }
