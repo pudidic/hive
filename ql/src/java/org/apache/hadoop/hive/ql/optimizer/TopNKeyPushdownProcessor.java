@@ -283,20 +283,51 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
      */
   }
 
-  private void pushdownThroughLeftOuterJoin(TopNKeyOperator topNKeyOperator) {
-    final Operator<? extends OperatorDesc> parentOperator =
-        topNKeyOperator.getParentOperators().get(0);
+  private void pushdownThroughLeftOuterJoin(TopNKeyOperator topNKeyOperator)
+      throws SemanticException {
+    pushdownThroughLeftOrRightOuterJoin(topNKeyOperator, 0);
+  }
+
+  private void pushdownThroughRightOuterJoin(TopNKeyOperator topNKeyOperator)
+      throws SemanticException {
+    pushdownThroughLeftOrRightOuterJoin(topNKeyOperator, 1);
+  }
+
+  private void pushdownThroughLeftOrRightOuterJoin(TopNKeyOperator topNKeyOperator, int position)
+      throws SemanticException {
     /*
      Push through LOJ. If TopNKey expression refers fully to expressions from left input, push with
      rewriting of expressions and remove from top of LOJ. If TopNKey expression has a prefix that
      refers to expressions from left input, push with rewriting of those expressions and keep on
      top of LOJ.
      */
-  }
+    final TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
+    final JoinOperator joinOperator = (JoinOperator) topNKeyOperator.getParentOperators().get(0);
+    final List<Operator<? extends OperatorDesc>> joinInputs = joinOperator.getParentOperators();
 
-  private void pushdownThroughRightOuterJoin(TopNKeyOperator topNKeyOperator) {
-    final Operator<? extends OperatorDesc> parentOperator =
-        topNKeyOperator.getParentOperators().get(0);
+    // Null order check
+    final ReduceSinkOperator reduceSinkOperator = (ReduceSinkOperator) joinInputs.get(position);
+    final ReduceSinkDesc reduceSinkDesc = reduceSinkOperator.getConf();
+    final String nullOrder = reduceSinkDesc.getNullOrder();
+    for (int i = 0; i < nullOrder.length(); i++) {
+      if (nullOrder.charAt(i) != 'a') {
+        return;
+      }
+    }
+
+    // Column mapping check
+    final List<ExprNodeDesc> mappedColumns = mapColumns(mapColumns(topNKeyDesc.getKeyColumns(),
+        joinOperator.getColumnExprMap()), reduceSinkOperator.getColumnExprMap());
+    if (mappedColumns.isEmpty()) {
+      return;
+    }
+
+    final String mappedOrder = mapOrder(topNKeyDesc.getColumnSortOrder(),
+        reduceSinkDesc.getKeyCols(), mappedColumns);
+    final TopNKeyDesc newTopNKeyDesc = new TopNKeyDesc(topNKeyDesc.getTopN(), mappedOrder,
+        mappedColumns);
+    final TopNKeyOperator newTopNKeyOperator = createOperatorBetween(reduceSinkOperator, newTopNKeyDesc);
+    pushdown(newTopNKeyOperator);
   }
 
   private void pushdownThroughInnerJoin(TopNKeyOperator topNKeyOperator) throws SemanticException {
