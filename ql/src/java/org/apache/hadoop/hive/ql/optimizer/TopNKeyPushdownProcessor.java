@@ -23,7 +23,6 @@ import org.apache.hadoop.hive.ql.exec.Operator;
 import org.apache.hadoop.hive.ql.exec.ReduceSinkOperator;
 import org.apache.hadoop.hive.ql.exec.SelectOperator;
 import org.apache.hadoop.hive.ql.exec.TopNKeyOperator;
-import org.apache.hadoop.hive.ql.exec.UnionOperator;
 import org.apache.hadoop.hive.ql.lib.Node;
 import org.apache.hadoop.hive.ql.lib.NodeProcessor;
 import org.apache.hadoop.hive.ql.lib.NodeProcessorCtx;
@@ -66,12 +65,7 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
         pushdownThroughSelect(topNKeyOperator);
         break;
 
-//      case UNION:
-//        pushdownThroughUnion(topNKeyOperator);
-//        break;
-//
       case FORWARD:
-      case LIMIT:
         moveDown(topNKeyOperator);
         pushdown(topNKeyOperator);
         break;
@@ -143,16 +137,6 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     parent.setParentOperators(new ArrayList<>(Collections.singletonList(operator)));
   }
 
-  private void pushdownThroughUnion(TopNKeyOperator topNKeyOperator) throws SemanticException {
-    final UnionOperator unionOperator = (UnionOperator) topNKeyOperator.getParentOperators().get(0);
-    final TopNKeyDesc topNKeyDesc = topNKeyOperator.getConf();
-    final TopNKeyDesc newTopNKeyDesc = new TopNKeyDesc(topNKeyDesc.getTopN(),
-        topNKeyDesc.getColumnSortOrder(), topNKeyDesc.getKeyColumns());
-    unionOperator.removeChildAndAdoptItsChildren(topNKeyOperator);
-
-    pushdown(copyDown(unionOperator, newTopNKeyDesc));
-  }
-
   private void pushdownThroughSelect(TopNKeyOperator topNKeyOperator) throws SemanticException {
     final SelectOperator selectOperator =
         (SelectOperator) topNKeyOperator.getParentOperators().get(0);
@@ -202,18 +186,10 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
     }
 
     // If TopNKey expression is same as GroupBy expression
-    final List<ExprNodeDesc> tnkKeys = topNKeyDesc.getKeyColumns();
-    final Map<String, ExprNodeDesc> gbyMap = groupByDesc.getColumnExprMap();
-    if (tnkKeys.size() != gbyMap.size()) {
+    final List<ExprNodeDesc> mappedColumns = mapColumns(topNKeyDesc.getKeyColumns(),
+        groupByDesc.getColumnExprMap());
+    if (!ExprNodeDescUtils.isSame(groupByDesc.getKeys(), mappedColumns)) {
       return;
-    }
-    final List<ExprNodeDesc> mappedColumns = new ArrayList<>();
-    for (ExprNodeDesc tnkKey : tnkKeys) {
-      final String tnkKeyString = tnkKey.getExprString();
-      if (!gbyMap.containsKey(tnkKeyString)) {
-        return;
-      }
-      mappedColumns.add(gbyMap.get(tnkKeyString));
     }
 
     // We can push it and remove it from above GroupBy.
@@ -242,15 +218,10 @@ public class TopNKeyPushdownProcessor implements NodeProcessor {
       return;
     }
 
-    // If TopNKey expression is same as GroupBy expression
-    final List<ExprNodeDesc> tnkKeys = topNKeyDesc.getKeyColumns();
-    final Map<String, ExprNodeDesc> rsMap = reduceSinkDesc.getColumnExprMap();
-    if (tnkKeys.size() != reduceSinkDesc.getKeyCols().size()) {
-      return;
-    }
-
-    final List<ExprNodeDesc> mappedColumns = mapColumns(topNKeyDesc.getKeyColumns(), rsMap);
-    if (mappedColumns == null) {
+    // If TopNKey expression is same as ReduceSink expression
+    final List<ExprNodeDesc> mappedColumns = mapColumns(topNKeyDesc.getKeyColumns(),
+        reduceSinkDesc.getColumnExprMap());
+    if (!ExprNodeDescUtils.isSame(reduceSinkDesc.getKeyCols(), mappedColumns)) {
       return;
     }
 
