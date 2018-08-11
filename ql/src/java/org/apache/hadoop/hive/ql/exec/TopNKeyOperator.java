@@ -117,7 +117,13 @@ public class TopNKeyOperator extends Operator<TopNKeyDesc> implements Serializab
 
   @Override
   public void process(Object row, int tag) throws HiveException {
-    keyWrapper.getNewKey(row, inputObjInspectors[0]);
+    if (canProcess(row, tag)) {
+      forward(row, outputObjInspector);
+    }
+  }
+
+  protected boolean canProcess(Object row, int tag) throws HiveException {
+    keyWrapper.getNewKey(row, inputObjInspectors[tag]);
     keyWrapper.setHashKey();
 
     if (!priorityQueue.contains(keyWrapper)) {
@@ -126,13 +132,13 @@ public class TopNKeyOperator extends Operator<TopNKeyDesc> implements Serializab
     if (priorityQueue.size() > topN) {
       priorityQueue.poll();
     }
-    if (priorityQueue.contains(keyWrapper)) {
-      forward(row, outputObjInspector);
-    }
+
+    return priorityQueue.contains(keyWrapper);
   }
 
   @Override
   protected final void closeOp(boolean abort) throws HiveException {
+    priorityQueue.clear();
     super.closeOp(abort);
   }
 

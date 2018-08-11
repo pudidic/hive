@@ -320,7 +320,6 @@ STAGE PLANS:
                     Top N Key Operator
                       sort order: +
                       keys: s_state (type: string)
-                      Statistics: Num rows: 1 Data size: 188 Basic stats: COMPLETE Column stats: NONE
                       top n: 100
                       Select Operator
                         expressions: s_store_sk (type: int), s_state (type: string)

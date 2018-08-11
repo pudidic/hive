@@ -922,8 +922,8 @@ POSTHOOK: query: SELECT src1.key, src2.value FROM src src1 FULL OUTER JOIN src s
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@src
 #### A masked pattern was here ####
-NULL	val_113
-NULL	val_11
-NULL	val_111
-NULL	val_114
 NULL	val_105
+NULL	val_114
+NULL	val_116
+NULL	val_118
+NULL	val_120
